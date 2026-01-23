@@ -1,6 +1,6 @@
 <p align="center">
   <img src="assets/logo.png" alt="Agent of Empires" width="128">
-  <h1 align="center">Agent of Empires (aoe)</h1>
+  <h1 align="center">Agent of Empires (AoE)</h1>
   <p align="center">
     <a href="https://njbrake.github.io/agent-of-empires/"><img src="https://img.shields.io/badge/docs-aoe-blue" alt="Documentation"></a>
     <a href="https://github.com/njbrake/agent-of-empires/actions/workflows/ci.yml"><img src="https://github.com/njbrake/agent-of-empires/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
