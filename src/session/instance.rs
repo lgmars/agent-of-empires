@@ -9,6 +9,7 @@ use crate::containers::{
     self, ContainerConfig, ContainerRuntimeInterface, DockerContainer, VolumeMount,
     CLAUDE_AUTH_VOLUME, CODEX_AUTH_VOLUME, OPENCODE_AUTH_VOLUME, VIBE_AUTH_VOLUME,
 };
+use crate::session::Config;
 use crate::tmux;
 
 fn default_true() -> bool {
@@ -401,6 +402,7 @@ impl Instance {
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
 
+        let cfg = Config::load()?;
         // Extract dir name from project path to preserve it in the container mount
         let dir_name = std::path::Path::new(&self.project_path)
             .file_name()
@@ -425,13 +427,16 @@ impl Instance {
             });
         }
 
-        let ssh_dir = home.join(".ssh");
-        if ssh_dir.exists() {
-            volumes.push(VolumeMount {
-                host_path: ssh_dir.to_string_lossy().to_string(),
-                container_path: format!("{}/.ssh", CONTAINER_HOME),
-                read_only: true,
-            });
+        if cfg.sandbox.share_ssh_folder {
+            tracing::info!("will share your ssh folder with the container.");
+            let ssh_dir = home.join(".ssh");
+            if ssh_dir.exists() {
+                volumes.push(VolumeMount {
+                    host_path: ssh_dir.to_string_lossy().to_string(),
+                    container_path: format!("{}/.ssh", CONTAINER_HOME),
+                    read_only: true,
+                });
+            }
         }
 
         let opencode_config = home.join(".config").join("opencode");

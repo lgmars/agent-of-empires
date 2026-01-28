@@ -177,6 +177,9 @@ pub struct SandboxConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_limit: Option<String>,
+
+    #[serde(default = "default_true")]
+    pub share_ssh_folder: bool,
 }
 
 impl Default for SandboxConfig {
@@ -190,6 +193,7 @@ impl Default for SandboxConfig {
             auto_cleanup: true,
             cpu_limit: None,
             memory_limit: None,
+            share_ssh_folder: true,
         }
     }
 }
