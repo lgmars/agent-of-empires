@@ -275,7 +275,7 @@ impl Instance {
         }
 
         let cmd = if self.is_sandboxed() {
-            self.ensure_container_running()?;
+            let container = self.get_container_for_instance()?;
             let sandbox = self.sandbox_info.as_ref().unwrap();
             let tool_cmd = if self.is_yolo_mode() {
                 match self.tool.as_str() {
@@ -294,8 +294,9 @@ impl Instance {
                 format!("{} ", env_args)
             };
             Some(wrap_command_ignore_suspend(&format!(
-                "docker exec -it {}{} {}",
-                env_part, sandbox.container_name, tool_cmd
+                "{} {}",
+                container.exec_command(Some(&env_part)),
+                tool_cmd
             )))
         } else if self.command.is_empty() {
             match self.tool.as_str() {
@@ -308,6 +309,10 @@ impl Instance {
             Some(wrap_command_ignore_suspend(&self.command))
         };
 
+        tracing::info!(
+            "container cmd is {}.",
+            cmd.as_ref().map_or("not found.", |v| v)
+        );
         session.create_with_size(&self.project_path, cmd.as_deref(), size)?;
 
         // Apply all configured tmux options (status bar, mouse, etc.)
@@ -358,7 +363,7 @@ impl Instance {
         apply_all_tmux_options(&session_name, &terminal_title, branch, sandbox.as_ref());
     }
 
-    fn ensure_container_running(&mut self) -> Result<()> {
+    fn get_container_for_instance(&mut self) -> Result<containers::DockerContainer> {
         let sandbox = self
             .sandbox_info
             .as_ref()
@@ -368,12 +373,12 @@ impl Instance {
         let container = DockerContainer::new(&self.id, image);
 
         if container.is_running()? {
-            return Ok(());
+            return Ok(container);
         }
 
         if container.exists()? {
             container.start()?;
-            return Ok(());
+            return Ok(container);
         }
 
         // Ensure image is available (always pulls to get latest)
@@ -395,7 +400,7 @@ impl Instance {
             sandbox.created_at = Some(Utc::now());
         }
 
-        Ok(())
+        Ok(container)
     }
 
     fn build_container_config(&self) -> Result<ContainerConfig> {
@@ -418,13 +423,16 @@ impl Instance {
 
         const CONTAINER_HOME: &str = "/root";
 
-        let gitconfig = home.join(".gitconfig");
-        if gitconfig.exists() {
-            volumes.push(VolumeMount {
-                host_path: gitconfig.to_string_lossy().to_string(),
-                container_path: format!("{}/.gitconfig", CONTAINER_HOME),
-                read_only: true,
-            });
+        #[cfg(not(target_os = "macos"))]
+        {
+            let gitconfig = home.join(".gitconfig");
+            if gitconfig.exists() {
+                volumes.push(VolumeMount {
+                    host_path: gitconfig.to_string_lossy().to_string(),
+                    container_path: format!("{}/.gitconfig", CONTAINER_HOME),
+                    read_only: true,
+                });
+            }
         }
 
         if cfg.sandbox.share_ssh_folder {
