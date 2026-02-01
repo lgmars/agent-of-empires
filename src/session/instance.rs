@@ -654,6 +654,7 @@ impl Instance {
     }
 
     fn build_container_config(&self) -> Result<ContainerConfig> {
+        let config = super::config::Config::load()?;
         let home =
             dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?;
 
@@ -685,13 +686,16 @@ impl Instance {
             }
         }
 
-        let ssh_dir = home.join(".ssh");
-        if ssh_dir.exists() {
-            volumes.push(VolumeMount {
-                host_path: ssh_dir.to_string_lossy().to_string(),
-                container_path: format!("{}/.ssh", CONTAINER_HOME),
-                read_only: true,
-            });
+        if config.sandbox.share_ssh_folder {
+            tracing::warn!("you ssh folder will be shared with the container.");
+            let ssh_dir = home.join(".ssh");
+            if ssh_dir.exists() {
+                volumes.push(VolumeMount {
+                    host_path: ssh_dir.to_string_lossy().to_string(),
+                    container_path: format!("{}/.ssh", CONTAINER_HOME),
+                    read_only: true,
+                });
+            }
         }
 
         let opencode_config = home.join(".config").join("opencode");
