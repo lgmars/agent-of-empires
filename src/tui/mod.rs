@@ -20,12 +20,32 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use ratatui::prelude::*;
+use std::fs::OpenOptions;
 use std::io;
 
 use crate::session::get_update_settings;
 use crate::update::check_for_update;
 
 pub async fn run(profile: &str) -> Result<()> {
+    let log_file = {
+        let cfg_dir = crate::session::get_app_dir()?;
+        std::fs::create_dir_all(&cfg_dir)?;
+
+        // Open (or create) your log file, appending to it.
+        let mut log_file_opts = OpenOptions::new();
+        log_file_opts.create(true).append(true);
+        log_file_opts.open(cfg_dir.join("aoe.log"))?
+    };
+
+    let (non_blocking, _guard) = tracing_appender::non_blocking(log_file);
+
+    if std::env::var("AGENT_OF_EMPIRES_DEBUG").is_ok() {
+        tracing_subscriber::fmt()
+            .with_env_filter("agent_of_empires=debug")
+            .with_writer(non_blocking)
+            .init();
+    }
+
     // Check for tmux
     if !crate::tmux::is_tmux_available() {
         eprintln!("Error: tmux not found in PATH");
