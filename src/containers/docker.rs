@@ -295,11 +295,11 @@ impl ContainerRuntimeInterface for Docker {
         Ok(())
     }
 
-    fn exec_command(&self, name: &str, options: Option<&str>) -> String {
+    fn exec_command(&self, name: &str, options: Option<&str>, cmd: &str) -> String {
         if let Some(opt_str) = options {
-            ["docker", "exec", "-it", opt_str, name].join(" ")
+            ["docker", "exec", "-it", opt_str, name, cmd].join(" ")
         } else {
-            ["docker", "exec", "-it", name].join(" ")
+            ["docker", "exec", "-it", name, cmd].join(" ")
         }
     }
 

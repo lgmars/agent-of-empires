@@ -352,9 +352,9 @@ impl Instance {
         let project_path = std::path::Path::new(&self.project_path);
         let (_, _, container_workdir) = self.compute_volume_paths(project_path)?;
 
-        let cmd = format!(
-            "{} /bin/bash",
-            container.exec_command(Some(&format!("{} {}", container_workdir, env_part)))
+        let cmd = container.exec_command(
+            Some(&format!("{} {}", container_workdir, env_part)),
+            "/bin/bash",
         );
 
         let session = self.container_terminal_tmux_session()?;
@@ -473,11 +473,9 @@ impl Instance {
             } else {
                 format!("{} ", env_args)
             };
-            Some(wrap_command_ignore_suspend(&format!(
-                "{} {}",
-                container.exec_command(Some(&env_part)),
-                tool_cmd
-            )))
+            Some(wrap_command_ignore_suspend(
+                &container.exec_command(Some(&env_part), &tool_cmd),
+            ))
         } else {
             // Run on_launch hooks on host for non-sandboxed sessions
             if let Some(ref hook_cmds) = on_launch_hooks {

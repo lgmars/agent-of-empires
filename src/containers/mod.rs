@@ -97,8 +97,8 @@ impl DockerContainer {
         self.runtime.remove(&self.name, force)
     }
 
-    pub fn exec_command(&self, options: Option<&str>) -> String {
-        self.runtime.exec_command(&self.name, options)
+    pub fn exec_command(&self, options: Option<&str>, cmd: &str) -> String {
+        self.runtime.exec_command(&self.name, options, cmd)
     }
 
     pub fn exec(&self, cmd: &[&str]) -> Result<std::process::Output> {
@@ -125,8 +125,8 @@ mod tests {
     #[test]
     fn test_container_exec_command() {
         let container = DockerContainer::new("test1234567890ab", "ubuntu:latest");
-        let cmd = container.exec_command(None);
-        assert_eq!(cmd, "docker exec -it aoe-sandbox-test1234");
+        let cmd = container.exec_command(None, "cmd");
+        assert_eq!(cmd, "docker exec -it aoe-sandbox-test1234 cmd");
     }
     #[test]
     fn test_anonymous_volumes_in_create_args() {
