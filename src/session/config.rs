@@ -230,6 +230,9 @@ pub struct SandboxConfig {
     #[serde(default = "default_true")]
     pub share_ssh_folder: bool,
 
+    #[serde(default = "default_true")]
+    pub use_named_volumes: bool,
+
     #[serde(default)]
     pub container_runtime: ContainerRuntimeName,
 }
@@ -258,6 +261,7 @@ impl Default for SandboxConfig {
             default_terminal_mode: DefaultTerminalMode::default(),
             volume_ignores: Vec::new(),
             share_ssh_folder: true,
+            use_named_volumes: true,
             container_runtime: ContainerRuntimeName::default(),
         }
     }

@@ -3,6 +3,7 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use uuid::Uuid;
 
 use crate::containers::{
@@ -674,84 +675,74 @@ impl Instance {
 
         const CONTAINER_HOME: &str = "/root";
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            let gitconfig = home.join(".gitconfig");
-            if gitconfig.exists() {
-                volumes.push(VolumeMount {
-                    host_path: gitconfig.to_string_lossy().to_string(),
-                    container_path: format!("{}/.gitconfig", CONTAINER_HOME),
-                    read_only: true,
-                });
-            }
-        }
+        // share your opencode config folder
+        let mut shared_paths = vec![(".config/opencode", true)];
 
+        // share your .gitconfig file
+        #[cfg(not(target_os = "macos"))]
+        shared_paths.push((".gitconfig", true));
+
+        // share your ssh folder
         if config.sandbox.share_ssh_folder {
             tracing::warn!("you ssh folder will be shared with the container.");
-            let ssh_dir = home.join(".ssh");
-            if ssh_dir.exists() {
-                volumes.push(VolumeMount {
-                    host_path: ssh_dir.to_string_lossy().to_string(),
-                    container_path: format!("{}/.ssh", CONTAINER_HOME),
-                    read_only: true,
-                });
-            }
+            shared_paths.push((".ssh", true));
         }
 
-        let opencode_config = home.join(".config").join("opencode");
-        if opencode_config.exists() {
-            volumes.push(VolumeMount {
-                host_path: opencode_config.to_string_lossy().to_string(),
-                container_path: format!("{}/.config/opencode", CONTAINER_HOME),
-                read_only: true,
-            });
-        }
-
-        let vibe_config = home.join(".vibe");
-        let has_vibe_host_mount = vibe_config.exists();
+        // share your vibe folder
+        let has_vibe_host_mount = home.join(".vibe").exists();
         if has_vibe_host_mount {
-            volumes.push(VolumeMount {
-                host_path: vibe_config.to_string_lossy().to_string(),
-                container_path: format!("{}/.vibe", CONTAINER_HOME),
-                read_only: false,
-            });
+            shared_paths.push((".vibe", false));
         }
 
-        let mut named_volumes = vec![
-            (
-                CLAUDE_AUTH_VOLUME.to_string(),
-                format!("{}/.claude", CONTAINER_HOME),
-            ),
-            (
-                OPENCODE_AUTH_VOLUME.to_string(),
-                format!("{}/.local/share/opencode", CONTAINER_HOME),
-            ),
-            (
-                CODEX_AUTH_VOLUME.to_string(),
-                format!("{}/.codex", CONTAINER_HOME),
-            ),
-            (
-                GEMINI_AUTH_VOLUME.to_string(),
-                format!("{}/.gemini", CONTAINER_HOME),
-            ),
+        fn _create_volume_mount_with_paths(
+            home: &Path,
+            paths: &[(&'static str, bool)],
+        ) -> Vec<VolumeMount> {
+            paths
+                .iter()
+                .filter_map(|s| {
+                    home.join(s.0)
+                        .canonicalize()
+                        .map(|p| VolumeMount {
+                            host_path: p.to_string_lossy().to_string(),
+                            container_path: format!("{}/{}", CONTAINER_HOME, s.0),
+                            read_only: s.1,
+                        })
+                        .ok()
+                })
+                .collect()
+        }
+
+        volumes.extend(_create_volume_mount_with_paths(&home, &shared_paths));
+
+        let mut auth_volumes = vec![
+            (CLAUDE_AUTH_VOLUME, ".clause"),
+            (OPENCODE_AUTH_VOLUME, ".local/share/opencode"),
+            (CODEX_AUTH_VOLUME, ".codex"),
+            (GEMINI_AUTH_VOLUME, ".gemini"),
         ];
-
-        // Only add vibe auth volume if we didn't already mount the host config
-        // (can't have duplicate mount points)
         if !has_vibe_host_mount {
-            named_volumes.push((
-                VIBE_AUTH_VOLUME.to_string(),
-                format!("{}/.vibe", CONTAINER_HOME),
-            ));
+            auth_volumes.push((VIBE_AUTH_VOLUME, ".vibe"));
         }
 
-        let sandbox_config = super::config::Config::load()
-            .ok()
-            .map(|c| c.sandbox)
-            .unwrap_or_default();
+        let named_volumes = if config.sandbox.use_named_volumes {
+            auth_volumes
+                .into_iter()
+                .map(|v| (v.0.to_string(), format!("{}/{}", CONTAINER_HOME, v.1)))
+                .collect()
+        } else {
+            volumes.extend(_create_volume_mount_with_paths(
+                &home,
+                &auth_volumes
+                    .into_iter()
+                    .map(|v| (v.1, false))
+                    .collect::<Vec<(&str, bool)>>(),
+            ));
+            Vec::<(String, String)>::new()
+        };
 
         let sandbox_info = self.sandbox_info.as_ref().unwrap();
-        let env_keys = collect_env_keys(&sandbox_config, sandbox_info);
+        let env_keys = collect_env_keys(&config.sandbox, sandbox_info);
 
         let mut environment: Vec<(String, String)> = env_keys
             .iter()
@@ -763,7 +754,7 @@ impl Instance {
             format!("{}/.claude", CONTAINER_HOME),
         ));
 
-        environment.extend(collect_env_values(&sandbox_config, sandbox_info));
+        environment.extend(collect_env_values(&config.sandbox, sandbox_info));
 
         if self.is_yolo_mode() && self.tool == "opencode" {
             environment.push((
@@ -772,7 +763,8 @@ impl Instance {
             ));
         }
 
-        let anonymous_volumes: Vec<String> = sandbox_config
+        let anonymous_volumes: Vec<String> = config
+            .sandbox
             .volume_ignores
             .iter()
             .map(|ignore| format!("{}/{}", workspace_path, ignore))
@@ -784,8 +776,8 @@ impl Instance {
             named_volumes,
             anonymous_volumes,
             environment,
-            cpu_limit: sandbox_config.cpu_limit,
-            memory_limit: sandbox_config.memory_limit,
+            cpu_limit: config.sandbox.cpu_limit,
+            memory_limit: config.sandbox.memory_limit,
         })
     }
 
