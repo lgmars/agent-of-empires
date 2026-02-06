@@ -66,6 +66,7 @@ struct SessionDetails {
     #[serde(skip_serializing_if = "Option::is_none")]
     parent_session_id: Option<String>,
     profile: String,
+    container: String,
 }
 
 pub async fn run(profile: &str, command: SessionCommands) -> Result<()> {
@@ -187,6 +188,11 @@ async fn show_session(profile: &str, args: ShowArgs) -> Result<()> {
         }
     };
 
+    let container = inst
+        .sandbox_info
+        .as_ref()
+        .map_or("".to_string(), |i| i.container_name.clone());
+
     if args.json {
         let details = SessionDetails {
             id: inst.id.clone(),
@@ -198,6 +204,7 @@ async fn show_session(profile: &str, args: ShowArgs) -> Result<()> {
             status: format!("{:?}", inst.status).to_lowercase(),
             parent_session_id: inst.parent_session_id.clone(),
             profile: storage.profile().to_string(),
+            container,
         };
         println!("{}", serde_json::to_string_pretty(&details)?);
     } else {
@@ -209,6 +216,7 @@ async fn show_session(profile: &str, args: ShowArgs) -> Result<()> {
         println!("  Command: {}", inst.command);
         println!("  Status:  {:?}", inst.status);
         println!("  Profile: {}", storage.profile());
+        println!("  Container: {}", container);
         if let Some(parent_id) = &inst.parent_session_id {
             println!("  Parent:  {}", parent_id);
         }
