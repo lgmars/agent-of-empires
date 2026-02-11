@@ -34,6 +34,12 @@ pub struct ProfileConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<SessionConfigOverride>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hooks: Option<HooksConfigOverride>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<crate::sound::SoundConfigOverride>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -118,6 +124,9 @@ pub struct SandboxConfigOverride {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub volume_ignores: Option<Vec<String>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mount_ssh: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -133,6 +142,15 @@ pub struct TmuxConfigOverride {
 pub struct SessionConfigOverride {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_tool: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HooksConfigOverride {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_create: Option<Vec<String>>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_launch: Option<Vec<String>>,
 }
 
 /// Load profile-specific config. Returns empty config if file doesn't exist.
@@ -171,6 +189,8 @@ pub fn profile_has_overrides(config: &ProfileConfig) -> bool {
         || config.sandbox.is_some()
         || config.tmux.is_some()
         || config.session.is_some()
+        || config.hooks.is_some()
+        || config.sound.is_some()
 }
 
 /// Load effective config for a profile (global + profile overrides merged)
@@ -218,6 +238,9 @@ pub fn apply_sandbox_overrides(
     if let Some(ref volume_ignores) = source.volume_ignores {
         target.volume_ignores = volume_ignores.clone();
     }
+    if let Some(mount_ssh) = source.mount_ssh {
+        target.mount_ssh = mount_ssh;
+    }
 }
 
 /// Apply worktree config overrides to a target config.
@@ -242,6 +265,19 @@ pub fn apply_worktree_overrides(
     }
     if let Some(delete_branch_on_cleanup) = source.delete_branch_on_cleanup {
         target.delete_branch_on_cleanup = delete_branch_on_cleanup;
+    }
+}
+
+/// Apply hooks config overrides to a target config.
+pub fn apply_hooks_overrides(
+    target: &mut crate::session::repo_config::HooksConfig,
+    source: &HooksConfigOverride,
+) {
+    if let Some(ref on_create) = source.on_create {
+        target.on_create = on_create.clone();
+    }
+    if let Some(ref on_launch) = source.on_launch {
+        target.on_launch = on_launch.clone();
     }
 }
 
@@ -308,6 +344,14 @@ pub fn merge_configs(mut global: Config, profile: &ProfileConfig) -> Config {
 
     if let Some(ref session_override) = profile.session {
         apply_session_overrides(&mut global.session, session_override);
+    }
+
+    if let Some(ref hooks_override) = profile.hooks {
+        apply_hooks_overrides(&mut global.hooks, hooks_override);
+    }
+
+    if let Some(ref sound_override) = profile.sound {
+        crate::sound::apply_sound_overrides(&mut global.sound, sound_override);
     }
 
     global

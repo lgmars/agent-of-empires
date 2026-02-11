@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
+use super::repo_config::HooksConfig;
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Config {
     #[serde(default = "default_profile")]
@@ -35,6 +37,12 @@ pub struct Config {
 
     #[serde(default)]
     pub diff: DiffConfig,
+
+    #[serde(default)]
+    pub hooks: HooksConfig,
+
+    #[serde(default)]
+    pub sound: crate::sound::SoundConfig,
 
     #[serde(default)]
     pub app_state: AppStateConfig,
@@ -227,8 +235,9 @@ pub struct SandboxConfig {
     #[serde(default)]
     pub volume_ignores: Vec<String>,
 
-    #[serde(default = "default_true")]
-    pub share_ssh_folder: bool,
+    /// Mount ~/.ssh into sandbox containers (default: false)
+    #[serde(default)]
+    pub mount_ssh: bool,
 
     #[serde(default = "default_true")]
     pub use_named_volumes: bool,
@@ -260,7 +269,7 @@ impl Default for SandboxConfig {
             memory_limit: None,
             default_terminal_mode: DefaultTerminalMode::default(),
             volume_ignores: Vec::new(),
-            share_ssh_folder: true,
+            mount_ssh: false,
             use_named_volumes: true,
             container_runtime: ContainerRuntimeName::default(),
         }

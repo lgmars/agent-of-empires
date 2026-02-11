@@ -424,19 +424,33 @@ impl Instance {
             return Ok(());
         }
 
-        // Execute on_launch hooks (trust already verified during creation).
-        // Use check_hook_trust which normalizes the path, so symlinked
-        // project_paths resolve correctly against the trust store.
+        // Resolve on_launch hooks from the full config chain (global > profile > repo).
+        // Repo hooks go through trust verification; global/profile hooks are implicitly trusted.
         let on_launch_hooks = if skip_on_launch {
             None
         } else {
+            // Start with global+profile hooks as the base
+            let profile = super::config::Config::load()
+                .map(|c| c.default_profile)
+                .unwrap_or_else(|_| "default".to_string());
+            let mut resolved_on_launch = super::profile_config::resolve_config(&profile)
+                .map(|c| c.hooks.on_launch)
+                .unwrap_or_default();
+
+            // Check if repo has trusted hooks that override
             match super::repo_config::check_hook_trust(std::path::Path::new(&self.project_path)) {
                 Ok(super::repo_config::HookTrustStatus::Trusted(hooks))
                     if !hooks.on_launch.is_empty() =>
                 {
-                    Some(hooks.on_launch.clone())
+                    resolved_on_launch = hooks.on_launch.clone();
                 }
-                _ => None,
+                _ => {}
+            }
+
+            if resolved_on_launch.is_empty() {
+                None
+            } else {
+                Some(resolved_on_launch)
             }
         };
 
@@ -673,6 +687,22 @@ impl Instance {
             read_only: false,
         }];
 
+        let sandbox_config = match super::config::Config::load() {
+            Ok(c) => {
+                tracing::debug!(
+                    "Loaded sandbox config: extra_volumes={:?}, mount_ssh={}, volume_ignores={:?}",
+                    c.sandbox.extra_volumes,
+                    c.sandbox.mount_ssh,
+                    c.sandbox.volume_ignores
+                );
+                c.sandbox
+            }
+            Err(e) => {
+                tracing::warn!("Failed to load config, using defaults: {}", e);
+                Default::default()
+            }
+        };
+
         const CONTAINER_HOME: &str = "/root";
 
         // share your opencode config folder
@@ -683,7 +713,7 @@ impl Instance {
         shared_paths.push((".gitconfig", true));
 
         // share your ssh folder
-        if config.sandbox.share_ssh_folder {
+        if config.sandbox.mount_ssh {
             tracing::warn!("you ssh folder will be shared with the container.");
             shared_paths.push((".ssh", true));
         }
@@ -725,6 +755,35 @@ impl Instance {
             auth_volumes.push((VIBE_AUTH_VOLUME, ".vibe"));
         }
 
+        // Add extra_volumes from config (host:container format)
+        // Also collect container paths to filter conflicting volume_ignores later
+        tracing::debug!(
+            "extra_volumes from config: {:?}",
+            sandbox_config.extra_volumes
+        );
+        let mut extra_volume_container_paths: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+
+        for entry in &sandbox_config.extra_volumes {
+            let parts: Vec<&str> = entry.splitn(3, ':').collect();
+            if parts.len() >= 2 {
+                tracing::info!(
+                    "Mounting extra volume: {} -> {} (ro: {})",
+                    parts[0],
+                    parts[1],
+                    parts.get(2) == Some(&"ro")
+                );
+                extra_volume_container_paths.insert(parts[1].to_string());
+                volumes.push(VolumeMount {
+                    host_path: parts[0].to_string(),
+                    container_path: parts[1].to_string(),
+                    read_only: parts.get(2) == Some(&"ro"),
+                });
+            } else {
+                tracing::warn!("Ignoring malformed extra_volume entry: {}", entry);
+            }
+        }
+
         let named_volumes = if config.sandbox.use_named_volumes {
             auth_volumes
                 .into_iter()
@@ -740,6 +799,26 @@ impl Instance {
             ));
             Vec::<(String, String)>::new()
         };
+
+        // Filter anonymous_volumes to exclude paths that conflict with extra_volumes
+        // (extra_volumes should take precedence over volume_ignores)
+        // Conflicts include:
+        //   - Exact match: both point to same path
+        //   - Anonymous volume is parent of extra_volume (would shadow the mount)
+        //   - Anonymous volume is inside extra_volume (redundant/conflicting)
+        let anonymous_volumes: Vec<String> = config
+            .sandbox
+            .volume_ignores
+            .iter()
+            .map(|ignore| format!("{}/{}", workspace_path, ignore))
+            .filter(|anon_path| {
+                !extra_volume_container_paths.iter().any(|extra_path| {
+                    anon_path == extra_path
+                        || extra_path.starts_with(&format!("{}/", anon_path))
+                        || anon_path.starts_with(&format!("{}/", extra_path))
+                })
+            })
+            .collect();
 
         let sandbox_info = self.sandbox_info.as_ref().unwrap();
         let env_keys = collect_env_keys(&config.sandbox, sandbox_info);
@@ -762,13 +841,6 @@ impl Instance {
                 r#"{"*":"allow"}"#.to_string(),
             ));
         }
-
-        let anonymous_volumes: Vec<String> = config
-            .sandbox
-            .volume_ignores
-            .iter()
-            .map(|ignore| format!("{}/{}", workspace_path, ignore))
-            .collect();
 
         Ok(ContainerConfig {
             working_dir: workspace_path,

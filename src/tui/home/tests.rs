@@ -177,6 +177,7 @@ fn test_has_dialog_returns_true_for_new_dialog() {
             gemini: false,
         },
         Vec::new(),
+        Vec::new(),
         "default",
     ));
     assert!(env.view.has_dialog());
@@ -741,7 +742,7 @@ fn test_has_dialog_includes_settings_view() {
 
     assert!(!view.has_dialog());
 
-    view.settings_view = Some(SettingsView::new("test").unwrap());
+    view.settings_view = Some(SettingsView::new("test", None).unwrap());
     assert!(view.has_dialog());
 }
 
