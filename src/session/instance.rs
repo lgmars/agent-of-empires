@@ -746,7 +746,7 @@ impl Instance {
         volumes.extend(_create_volume_mount_with_paths(&home, &shared_paths));
 
         let mut auth_volumes = vec![
-            (CLAUDE_AUTH_VOLUME, ".clause"),
+            (CLAUDE_AUTH_VOLUME, ".claude"),
             (OPENCODE_AUTH_VOLUME, ".local/share/opencode"),
             (CODEX_AUTH_VOLUME, ".codex"),
             (GEMINI_AUTH_VOLUME, ".gemini"),
