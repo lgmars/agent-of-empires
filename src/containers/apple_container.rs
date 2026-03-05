@@ -99,7 +99,25 @@ impl ContainerRuntimeInterface for AppleContainer {
     }
 
     fn remove(&self, name: &str, force: bool) -> Result<()> {
-        self.base.remove(name, force)
+        let mut args = vec!["delete".to_string()];
+        if force {
+            args.push("-f".to_string());
+        }
+        // NOTE: unlike in docker, apple container doesn't support `-v`
+        // to automatically remove anonymous volumes
+        args.push(name.to_string());
+
+        let output = self.base.command().args(&args).output()?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("No such container") {
+                return Err(DockerError::ContainerNotFound(name.to_string()));
+            }
+            return Err(DockerError::RemoveFailed(stderr.to_string()));
+        }
+
+        Ok(())
     }
 
     fn exec_command(&self, name: &str, options: Option<&str>) -> String {
