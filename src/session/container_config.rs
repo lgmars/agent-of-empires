@@ -853,7 +853,7 @@ pub(crate) fn build_container_config(
         }
     };
 
-    const CONTAINER_HOME: &str = "/root";
+    const CONTAINER_HOME: &str = "/home/ubuntu";
 
     let gitconfig = home.join(".gitconfig");
     if gitconfig.exists() {
