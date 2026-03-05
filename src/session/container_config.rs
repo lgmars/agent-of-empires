@@ -513,6 +513,12 @@ pub(crate) fn refresh_agent_configs() {
     }
 }
 
+fn find_path_in_volumes(path: &Path, volumes: &[VolumeMount]) -> bool {
+    volumes
+        .iter()
+        .any(|v| v.host_path.eq_ignore_ascii_case(&path.to_string_lossy()))
+}
+
 /// Build a full `ContainerConfig` for creating a sandboxed container.
 pub(crate) fn build_container_config(
     project_path_str: &str,
@@ -733,6 +739,11 @@ pub(crate) fn build_container_config(
         }
     }
     deduped.reverse();
+
+    if find_path_in_volumes(&home, &deduped) {
+        tracing::warn!("can't mount {home:?} into a container.");
+        anyhow::bail!("can't mount {home:?} into a container.")
+    }
 
     Ok(ContainerConfig {
         working_dir: workspace_path,
