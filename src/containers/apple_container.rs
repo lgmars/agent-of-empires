@@ -120,8 +120,24 @@ impl ContainerRuntimeInterface for AppleContainer {
         Ok(())
     }
 
-    fn exec_command(&self, name: &str, options: Option<&str>) -> String {
-        self.base.exec_command(name, options)
+    fn exec_command(&self, name: &str, options: Option<&str>, cmd: &str) -> String {
+        let cmd_str = format!(r#""{}""#, cmd);
+
+        if let Some(opt_str) = options {
+            [
+                "container",
+                "exec",
+                "-it",
+                opt_str,
+                name,
+                "sh",
+                "-c",
+                &cmd_str,
+            ]
+            .join(" ")
+        } else {
+            ["container", "exec", "-it", name, "sh", "-c", &cmd_str].join(" ")
+        }
     }
 
     fn exec(&self, name: &str, cmd: &[&str]) -> Result<std::process::Output> {

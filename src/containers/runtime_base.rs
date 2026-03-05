@@ -256,11 +256,11 @@ impl RuntimeBase {
         Ok(())
     }
 
-    pub fn exec_command(&self, name: &str, options: Option<&str>) -> String {
+    pub fn exec_command(&self, name: &str, options: Option<&str>, cmd: &str) -> String {
         if let Some(opt_str) = options {
-            [self.binary, "exec", "-it", opt_str, name].join(" ")
+            [self.binary, "exec", "-it", opt_str, name, cmd].join(" ")
         } else {
-            [self.binary, "exec", "-it", name].join(" ")
+            [self.binary, "exec", "-it", name, cmd].join(" ")
         }
     }
 
@@ -329,22 +329,22 @@ mod tests {
     #[test]
     fn test_exec_command_with_options() {
         let base = RuntimeBase::DOCKER;
-        let cmd = base.exec_command("my-container", Some("-w /workspace"));
-        assert_eq!(cmd, "docker exec -it -w /workspace my-container");
+        let cmd = base.exec_command("my-container", Some("-w /workspace"), "my-agent");
+        assert_eq!(cmd, "docker exec -it -w /workspace my-container my-agent");
     }
 
     #[test]
     fn test_exec_command_without_options() {
         let base = RuntimeBase::DOCKER;
-        let cmd = base.exec_command("my-container", None);
-        assert_eq!(cmd, "docker exec -it my-container");
+        let cmd = base.exec_command("my-container", None, "my-agent");
+        assert_eq!(cmd, "docker exec -it my-container my-agent");
     }
 
     #[test]
     fn test_exec_command_apple_container() {
         let base = RuntimeBase::APPLE_CONTAINER;
-        let cmd = base.exec_command("my-container", None);
-        assert_eq!(cmd, "container exec -it my-container");
+        let cmd = base.exec_command("my-container", None, "my-agent");
+        assert_eq!(cmd, "container exec -it my-container my-agent");
     }
 
     #[test]

@@ -101,8 +101,8 @@ impl ContainerRuntimeInterface for Docker {
         self.base.remove(name, force)
     }
 
-    fn exec_command(&self, name: &str, options: Option<&str>) -> String {
-        self.base.exec_command(name, options)
+    fn exec_command(&self, name: &str, options: Option<&str>, cmd: &str) -> String {
+        self.base.exec_command(name, options, cmd)
     }
 
     fn exec(&self, name: &str, cmd: &[&str]) -> Result<std::process::Output> {
