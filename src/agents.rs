@@ -50,12 +50,18 @@ pub struct AgentDef {
     pub supports_host_launch: bool,
     /// Status detection function pointer. Takes raw (non-lowercased) pane content.
     pub detect_status: fn(&str) -> Status,
+    /// Status detection function pointer. Takes raw pane title.
+    pub detect_status_from_pane_title: fn(&str) -> Status,
     /// Environment variables always injected into the container for this agent.
     pub container_env: &'static [(&'static str, &'static str)],
     /// Hook configuration for file-based status detection. If set, AoE installs
     /// hooks into the agent's settings file so status is written to a file instead
     /// of being parsed from tmux pane content.
     pub hook_config: Option<AgentHookConfig>,
+}
+
+fn detect_status_from_pane_title(_title: &str) -> Status {
+    Status::Unknown
 }
 
 pub const AGENTS: &[AgentDef] = &[
@@ -69,6 +75,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: false,
         supports_host_launch: true,
         detect_status: status_detection::detect_claude_status,
+        detect_status_from_pane_title,
         container_env: &[("CLAUDE_CONFIG_DIR", "/root/.claude")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".claude/settings.json",
@@ -84,6 +91,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: true,
         supports_host_launch: false,
         detect_status: status_detection::detect_opencode_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
     },
@@ -97,6 +105,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: false,
         supports_host_launch: true,
         detect_status: status_detection::detect_vibe_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
     },
@@ -112,6 +121,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: true,
         supports_host_launch: true,
         detect_status: status_detection::detect_codex_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
     },
@@ -125,6 +135,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: false,
         supports_host_launch: true,
         detect_status: status_detection::detect_gemini_status,
+        detect_status_from_pane_title: status_detection::detect_gemini_status_from_pane_title,
         container_env: &[],
         hook_config: None,
     },
@@ -138,6 +149,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: false,
         supports_host_launch: true,
         detect_status: status_detection::detect_cursor_status,
+        detect_status_from_pane_title,
         container_env: &[("CURSOR_CONFIG_DIR", "/root/.cursor")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".cursor/settings.json",

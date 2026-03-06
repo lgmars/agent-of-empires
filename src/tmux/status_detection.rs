@@ -6,6 +6,12 @@ use super::utils::strip_ansi;
 
 const SPINNER_CHARS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+pub fn detect_status_from_pane_title(title: &str, tool: &str) -> Status {
+    crate::agents::get_agent(tool)
+        .map(|a| (a.detect_status_from_pane_title)(title))
+        .unwrap_or(Status::Unknown)
+}
+
 pub fn detect_status_from_content(content: &str, tool: &str, _fg_pid: Option<u32>) -> Status {
     let status = crate::agents::get_agent(tool)
         .map(|a| (a.detect_status)(content))
@@ -401,6 +407,25 @@ pub fn detect_gemini_status(raw_content: &str) -> Status {
     Status::Idle
 }
 
+pub fn detect_gemini_status_from_pane_title(pane_title: &str) -> Status {
+    // Possible Titles:
+    // `◇  Ready`
+    // `✋  Action required`
+    // `⏲  Working…`
+    // `✦  ${displayStatus}${activeSuffix}`
+    //
+    match pane_title {
+        _ if pane_title.starts_with("◇  Ready") => Status::Idle,
+        _ if pane_title.starts_with("✋  Action required") => Status::Waiting,
+        _ if pane_title.starts_with("⏲  Working…") => Status::Running,
+        _ if pane_title.starts_with("✦  ") => Status::Running,
+        pane_title => {
+            tracing::warn!("unknown gemini title {pane_title}");
+            Status::Unknown
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -591,5 +616,50 @@ mod tests {
     fn test_detect_gemini_status_idle() {
         assert_eq!(detect_gemini_status("file saved"), Status::Idle);
         assert_eq!(detect_gemini_status("random output text"), Status::Idle);
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_idle() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("◇  Ready"),
+            Status::Idle
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("◇  Ready (project synced)"),
+            Status::Idle
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_waiting() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✋  Action required"),
+            Status::Waiting
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✋  Action required - approve command"),
+            Status::Waiting
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_running() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("⏲  Working…"),
+            Status::Running
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✦  Summarizing files"),
+            Status::Running
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_unknown() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("Some custom title"),
+            Status::Unknown
+        );
+        assert_eq!(detect_gemini_status_from_pane_title(""), Status::Unknown);
     }
 }
