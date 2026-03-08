@@ -7,20 +7,9 @@ use super::utils::strip_ansi;
 const SPINNER_CHARS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn detect_status_from_content(content: &str, tool: &str, _fg_pid: Option<u32>) -> Status {
-    let status = crate::agents::get_agent(tool)
+    crate::agents::get_agent(tool)
         .map(|a| (a.detect_status)(content))
-        .unwrap_or(Status::Idle);
-
-    if status == Status::Idle {
-        let last_lines: Vec<&str> = content.lines().rev().take(5).collect();
-        tracing::debug!(
-            "status detection returned Idle for tool '{}', last 5 lines: {:?}",
-            tool,
-            last_lines
-        );
-    }
-
-    status
+        .unwrap_or(Status::Idle)
 }
 
 /// Claude Code status is detected via hooks (file-based), not tmux pane parsing.
