@@ -581,13 +581,16 @@ pub(crate) fn build_container_config(
 
     const CONTAINER_HOME: &str = "/home/ubuntu";
 
-    let gitconfig = home.join(".gitconfig");
-    if gitconfig.exists() {
-        volumes.push(VolumeMount {
-            host_path: gitconfig.to_string_lossy().to_string(),
-            container_path: format!("{}/.gitconfig", CONTAINER_HOME),
-            read_only: true,
-        });
+    #[cfg(not(target_os = "macos"))]
+    {
+        let gitconfig = home.join(".gitconfig");
+        if gitconfig.exists() {
+            volumes.push(VolumeMount {
+                host_path: gitconfig.to_string_lossy().to_string(),
+                container_path: format!("{}/.gitconfig", CONTAINER_HOME),
+                read_only: true,
+            });
+        }
     }
 
     if sandbox_config.mount_ssh {
