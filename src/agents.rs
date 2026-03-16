@@ -112,7 +112,7 @@ pub const AGENTS: &[AgentDef] = &[
         set_default_command: false,
         supports_host_launch: true,
         detect_status: status_detection::detect_claude_status,
-        container_env: &[("CLAUDE_CONFIG_DIR", "/root/.claude")],
+        container_env: &[("CLAUDE_CONFIG_DIR", "/home/ubuntu/.claude")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".claude/settings.json",
             events: CLAUDE_CURSOR_HOOK_EVENTS,
