@@ -6,14 +6,20 @@ use super::utils::strip_ansi;
 
 const SPINNER_CHARS: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+pub fn detect_status_from_pane_title(title: &str, tool: &str) -> Status {
+    crate::agents::get_agent(tool)
+        .map(|a| (a.detect_status_from_pane_title)(title))
+        .unwrap_or(Status::Unknown)
+}
+
 pub fn detect_status_from_content(content: &str, tool: &str) -> Status {
     // Strip ANSI escape codes before passing to detectors. capture-pane is
     // called with -e (to preserve colors for the TUI preview), but color codes
     // interspersed in text like "esc interrupt" break plain substring matches.
     let clean = strip_ansi(content);
-    let status = crate::agents::get_agent(tool)
+    crate::agents::get_agent(tool)
         .map(|a| (a.detect_status)(&clean))
-        .unwrap_or(Status::Idle);
+        .unwrap_or(Status::Idle)
 
     // if status == Status::Idle {
     //     let last_lines: Vec<&str> = clean.lines().rev().take(5).collect();
@@ -23,8 +29,6 @@ pub fn detect_status_from_content(content: &str, tool: &str) -> Status {
     //         last_lines
     //     );
     // }
-
-    status
 }
 
 /// Spinner frame characters Claude Code rotates through next to its active
@@ -730,6 +734,24 @@ pub fn detect_gemini_status(raw_content: &str) -> Status {
     Status::Idle
 }
 
+pub fn detect_gemini_status_from_pane_title(pane_title: &str) -> Status {
+    // Possible Titles:
+    // `◇  Ready`
+    // `✋  Action required`
+    // `⏲  Working…`
+    // `✦  ${displayStatus}${activeSuffix}`
+    //
+    match pane_title {
+        _ if pane_title.starts_with("◇  Ready") => Status::Idle,
+        _ if pane_title.starts_with("✋  Action required") => Status::Waiting,
+        _ if pane_title.starts_with("⏲  Working…") => Status::Running,
+        _ if pane_title.starts_with("✦  ") => Status::Running,
+        _ => {
+            Status::Unknown
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,6 +1071,51 @@ mod tests {
     fn test_detect_gemini_status_idle() {
         assert_eq!(detect_gemini_status("file saved"), Status::Idle);
         assert_eq!(detect_gemini_status("random output text"), Status::Idle);
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_idle() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("◇  Ready"),
+            Status::Idle
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("◇  Ready (project synced)"),
+            Status::Idle
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_waiting() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✋  Action required"),
+            Status::Waiting
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✋  Action required - approve command"),
+            Status::Waiting
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_running() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("⏲  Working…"),
+            Status::Running
+        );
+        assert_eq!(
+            detect_gemini_status_from_pane_title("✦  Summarizing files"),
+            Status::Running
+        );
+    }
+
+    #[test]
+    fn test_detect_gemini_status_from_pane_title_unknown() {
+        assert_eq!(
+            detect_gemini_status_from_pane_title("Some custom title"),
+            Status::Unknown
+        );
+        assert_eq!(detect_gemini_status_from_pane_title(""), Status::Unknown);
     }
 
     #[test]

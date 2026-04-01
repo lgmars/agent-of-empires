@@ -278,11 +278,28 @@ impl Session {
         process::get_foreground_pid(pane_pid).or(Some(pane_pid))
     }
 
+    fn get_tmux_pane_title(&self) -> Result<String> {
+        let output = Command::new("tmux")
+            .args(["display-message", "-t", &self.name, "-p", "#{pane_title}"])
+            .output()?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Ok(String::new())
+        }
+    }
+
     pub fn detect_status(&self, tool: &str) -> Result<Status> {
         let content = self.capture_pane(50)?;
-        Ok(super::status_detection::detect_status_from_content(
-            &content, tool,
-        ))
+        let pane_title = self.get_tmux_pane_title()?;
+
+        match super::status_detection::detect_status_from_pane_title(&pane_title, tool) {
+            Status::Unknown => Ok(super::status_detection::detect_status_from_content(
+                &content, tool,
+            )),
+            status => Ok(status),
+        }
     }
 
     /// Send literal text to the session's first window pane, followed by Enter.
