@@ -62,6 +62,8 @@ pub struct AgentDef {
     pub set_default_command: bool,
     /// Status detection function pointer. Takes raw (non-lowercased) pane content.
     pub detect_status: fn(&str) -> Status,
+    /// Status detection function pointer. Takes raw pane title.
+    pub detect_status_from_pane_title: fn(&str) -> Status,
     /// Environment variables always injected into the container for this agent.
     pub container_env: &'static [(&'static str, &'static str)],
     /// Hook configuration for file-based status detection. If set, AoE installs
@@ -77,6 +79,10 @@ pub struct AgentDef {
     /// newlines within a paste rather than as "submit". A delay longer than the
     /// agent's burst window lets the suppression expire before Enter arrives.
     pub send_keys_enter_delay_ms: u64,
+}
+
+fn detect_status_from_pane_title(_title: &str) -> Status {
+    Status::Unknown
 }
 
 /// Hook events shared by Claude Code and Cursor CLI.
@@ -118,6 +124,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: Some("--append-system-prompt {}"),
         set_default_command: false,
         detect_status: status_detection::detect_claude_status,
+        detect_status_from_pane_title,
         container_env: &[("CLAUDE_CONFIG_DIR", "/home/ubuntu/.claude")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".claude/settings.json",
@@ -135,6 +142,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: true,
         detect_status: status_detection::detect_opencode_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
         host_only: false,
@@ -149,6 +157,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_vibe_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
         host_only: false,
@@ -165,6 +174,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: Some("--config developer_instructions={}"),
         set_default_command: true,
         detect_status: status_detection::detect_codex_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
         host_only: false,
@@ -182,6 +192,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_gemini_status,
+        detect_status_from_pane_title: status_detection::detect_gemini_status_from_pane_title,
         container_env: &[],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".gemini/settings.json",
@@ -220,6 +231,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_cursor_status,
+        detect_status_from_pane_title,
         container_env: &[("CURSOR_CONFIG_DIR", "/root/.cursor")],
         hook_config: Some(AgentHookConfig {
             settings_rel_path: ".cursor/settings.json",
@@ -237,6 +249,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_copilot_status,
+        detect_status_from_pane_title,
         container_env: &[("COPILOT_CONFIG_DIR", "/root/.copilot")],
         hook_config: None,
         host_only: false,
@@ -252,6 +265,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_pi_status,
+        detect_status_from_pane_title,
         container_env: &[("PI_CODING_AGENT_DIR", "/root/.pi/agent")],
         hook_config: None,
         host_only: false,
@@ -266,6 +280,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_droid_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
         host_only: false,
