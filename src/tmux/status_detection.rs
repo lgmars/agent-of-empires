@@ -15,14 +15,14 @@ pub fn detect_status_from_content(content: &str, tool: &str) -> Status {
         .map(|a| (a.detect_status)(&clean))
         .unwrap_or(Status::Idle);
 
-    if status == Status::Idle {
-        let last_lines: Vec<&str> = clean.lines().rev().take(5).collect();
-        tracing::debug!(
-            "status detection returned Idle for tool '{}', last 5 lines: {:?}",
-            tool,
-            last_lines
-        );
-    }
+    // if status == Status::Idle {
+    //     let last_lines: Vec<&str> = clean.lines().rev().take(5).collect();
+    //     tracing::debug!(
+    //         "status detection returned Idle for tool '{}', last 5 lines: {:?}",
+    //         tool,
+    //         last_lines
+    //     );
+    // }
 
     status
 }
