@@ -331,6 +331,172 @@ pub async fn create_session(
     }
 }
 
+// --- Ensure agent session ---
+
+/// Ensure the main agent tmux session is alive, restarting it if dead.
+///
+/// Mirrors the TUI's `attach_session` restart logic: checks the actual tmux
+/// state (exists / pane dead / running unexpected shell) and restarts the
+/// instance when needed. Returns the resulting status so the frontend can
+/// decide whether to proceed with the WebSocket attach.
+///
+/// Concurrency: a per-instance `tokio::sync::Mutex` serializes ensure calls
+/// for the same session so two rapid POSTs don't both decide "dead" and race
+/// on `tmux new-session`.
+///
+/// Read-only: in read-only mode, the endpoint may report `alive` but will
+/// refuse to kill+restart a session. Returns 403 when a restart is needed.
+pub async fn ensure_session(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let instances = state.instances.read().await;
+    let Some(instance) = instances.iter().find(|i| i.id == id).cloned() else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not_found"})),
+        )
+            .into_response();
+    };
+    drop(instances);
+
+    // Serialize concurrent ensure calls for the same session. The decision
+    // phase reads tmux state and the restart phase mutates it; any other
+    // ensure for this id must wait so both see a consistent view.
+    let inst_lock = state.instance_lock(&id).await;
+    let _guard = inst_lock.lock().await;
+
+    // Inspect tmux + make the restart decision on a blocking thread. Refresh
+    // the cache first so rapid re-calls see the true current state (the
+    // background status poller only refreshes every 2s).
+    let decision_instance = instance.clone();
+    let id_for_log = id.clone();
+    let decision = tokio::task::spawn_blocking(move || -> anyhow::Result<bool> {
+        crate::tmux::refresh_session_cache();
+        let tmux_session = decision_instance.tmux_session()?;
+        let exists = tmux_session.exists();
+        let pane_dead = exists && tmux_session.is_pane_dead();
+        let needs_restart = if !exists || pane_dead {
+            true
+        } else if crate::hooks::read_hook_status(&decision_instance.id).is_some() {
+            // Hook status tracks this session; shell detection is unreliable.
+            false
+        } else if decision_instance.has_command_override() {
+            // Custom command overrides run agents through wrapper scripts that
+            // look like shells to tmux. Don't restart based on shell detection.
+            false
+        } else {
+            !decision_instance.expects_shell() && tmux_session.is_pane_running_shell()
+        };
+        tracing::debug!(
+            session_id = id_for_log,
+            exists,
+            pane_dead,
+            needs_restart,
+            "ensure_session: restart decision"
+        );
+        Ok(needs_restart)
+    })
+    .await;
+
+    let needs_restart = match decision {
+        Ok(Ok(v)) => v,
+        Ok(Err(e)) => {
+            tracing::error!("ensure_session: failed to inspect tmux for {id}: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+        Err(e) => {
+            tracing::error!("ensure_session inspect panicked for {id}: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response();
+        }
+    };
+
+    if !needs_restart {
+        return (StatusCode::OK, Json(serde_json::json!({"status": "alive"}))).into_response();
+    }
+
+    if state.read_only {
+        // Read-only viewers must not kill + respawn a dead session. Signal
+        // the frontend so it can show "session is stopped; ask an owner to
+        // reattach" instead of silently replacing the agent process.
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "read_only",
+                "message": "Session is stopped or errored. Restart requires write access.",
+            })),
+        )
+            .into_response();
+    }
+
+    {
+        let mut instances = state.instances.write().await;
+        if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+            inst.status = crate::session::Status::Starting;
+            inst.last_error = None;
+        }
+    }
+
+    let restart_result = tokio::task::spawn_blocking(move || -> anyhow::Result<Instance> {
+        let tmux_session = instance.tmux_session()?;
+        if tmux_session.exists() {
+            let _ = tmux_session.kill();
+        }
+        let mut inst = instance;
+        inst.start_with_size_opts(None, false)?;
+        Ok(inst)
+    })
+    .await;
+
+    match restart_result {
+        Ok(Ok(started)) => {
+            let mut instances = state.instances.write().await;
+            if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+                inst.status = started.status;
+                inst.last_error = None;
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({"status": "restarted"})),
+            )
+                .into_response()
+        }
+        Ok(Err(e)) => {
+            let msg = e.to_string();
+            tracing::warn!("ensure_session restart failed for {id}: {msg}");
+            let mut instances = state.instances.write().await;
+            if let Some(inst) = instances.iter_mut().find(|i| i.id == id) {
+                inst.status = crate::session::Status::Error;
+                inst.last_error = Some(msg.clone());
+            }
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "restart_failed",
+                    "message": msg,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            tracing::error!("ensure_session panicked for {id}: {e}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "internal"})),
+            )
+                .into_response()
+        }
+    }
+}
+
 // --- Paired terminal ---
 
 pub async fn ensure_terminal(
