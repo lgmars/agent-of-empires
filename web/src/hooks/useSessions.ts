@@ -54,5 +54,9 @@ export function useSessions() {
     };
   }, []);
 
-  return { sessions, error, refresh, injectSession };
+  const setSessionStatus = useCallback((id: string, status: SessionResponse["status"]) => {
+    setSessions((prev) => prev.map((s) => s.id === id ? { ...s, status } : s));
+  }, []);
+
+  return { sessions, error, refresh, injectSession, setSessionStatus };
 }

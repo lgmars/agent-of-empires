@@ -6,8 +6,11 @@ import { useRepoGroups } from "./hooks/useRepoGroups";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useDiffFiles } from "./hooks/useDiffFiles";
 import { useCommandActions } from "./hooks/useCommandActions";
-import { loginStatus, logout } from "./lib/api";
+import { loginStatus, logout, deleteSession, fetchAbout } from "./lib/api";
+import type { DeleteSessionOptions, ServerAbout } from "./lib/api";
+import { toastBus } from "./lib/toastBus";
 import { WorkspaceSidebar } from "./components/WorkspaceSidebar";
+import { DeleteSessionDialog } from "./components/DeleteSessionDialog";
 import { TopBar } from "./components/TopBar";
 import { ContentSplit } from "./components/ContentSplit";
 import { TerminalView } from "./components/TerminalView";
@@ -55,7 +58,7 @@ export default function App() {
 }
 
 function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLogout: () => void }) {
-  const { sessions, error, injectSession } = useSessions();
+  const { sessions, error, injectSession, setSessionStatus } = useSessions();
   const workspaces = useWorkspaces(sessions);
   const { groups, toggleRepoCollapsed } = useRepoGroups(workspaces);
 
@@ -133,6 +136,48 @@ function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLog
   };
 
   const [wizardPrefill, setWizardPrefill] = useState<WizardPrefill | undefined>(undefined);
+  const [deletingWorkspaceId, setDeletingWorkspaceId] = useState<string | null>(null);
+  const [serverAbout, setServerAbout] = useState<ServerAbout | null>(null);
+
+  useEffect(() => {
+    fetchAbout().then((about) => {
+      if (about) setServerAbout(about);
+    });
+  }, []);
+
+  const deletingWorkspace = deletingWorkspaceId
+    ? workspaces.find((w) => w.id === deletingWorkspaceId)
+    : null;
+  const deletingSession = deletingWorkspace?.sessions[0] ?? null;
+
+  const handleDeleteSession = useCallback((workspaceId: string) => {
+    setDeletingWorkspaceId(workspaceId);
+  }, []);
+
+  const handleConfirmDelete = useCallback(async (options: DeleteSessionOptions) => {
+    if (!deletingSession) return;
+    const sessionId = deletingSession.id;
+    const wasActive = sessionId === activeSessionId;
+
+    // Close dialog and show "Deleting" status immediately
+    setDeletingWorkspaceId(null);
+    setSessionStatus(sessionId, "Deleting");
+
+    if (wasActive) {
+      setActiveWorkspaceId(null);
+      setActiveSessionId(null);
+    }
+
+    const result = await deleteSession(sessionId, options);
+    if (!result.ok) {
+      // Revert status on failure
+      setSessionStatus(sessionId, "Error");
+      toastBus.handler?.error(result.error || "Failed to delete session");
+      return;
+    }
+
+    toastBus.handler?.info("Session deleted");
+  }, [deletingSession, activeSessionId, setSessionStatus]);
 
   const handleCreateSession = useCallback((repoPath: string) => {
     const projectSessions = sessions
@@ -262,6 +307,10 @@ function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLog
         onNew: () => setShowAddProject(true),
         onDiff: () => toggleDiff(),
         onEscape: () => {
+          if (deletingWorkspaceId) {
+            setDeletingWorkspaceId(null);
+            return;
+          }
           if (showPalette) {
             setShowPalette(false);
             return;
@@ -278,7 +327,7 @@ function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLog
         onToggleSidebar: () => setSidebarOpen((o) => !o),
         onToggleRightPanel: () => setDiffCollapsed((c) => !c),
       }),
-      [toggleDiff, showPalette],
+      [toggleDiff, showPalette, deletingWorkspaceId],
     ),
   );
 
@@ -391,6 +440,8 @@ function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLog
           onSettings={() => { setShowSettings((s) => !s); if (window.innerWidth < 768) setSidebarOpen(false); }}
           onRepeatLast={handleRepeatLast}
           hasLastSession={!!lastSession}
+          onDeleteSession={handleDeleteSession}
+          readOnly={serverAbout?.read_only}
         />
 
         <div className="flex-1 flex flex-col min-h-0 min-w-0">
@@ -409,6 +460,18 @@ function AppContent({ loginRequired, onLogout }: { loginRequired: boolean; onLog
       {showHelp && <HelpOverlay onClose={() => setShowHelp(false)} />}
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+
+      {deletingSession && (
+        <DeleteSessionDialog
+          sessionTitle={deletingSession.title}
+          branchName={deletingSession.branch}
+          hasManagedWorktree={deletingSession.has_managed_worktree}
+          isSandboxed={deletingSession.is_sandboxed}
+          cleanupDefaults={deletingSession.cleanup_defaults}
+          onConfirm={handleConfirmDelete}
+          onCancel={() => setDeletingWorkspaceId(null)}
+        />
+      )}
 
       <CommandPalette
         open={showPalette}
