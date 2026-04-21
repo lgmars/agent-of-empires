@@ -484,7 +484,7 @@ pub struct SandboxConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cpu_limit: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default = "default_memory_limit", skip_serializing_if = "Option::is_none")]
     pub memory_limit: Option<String>,
 
     #[serde(
@@ -519,8 +519,8 @@ pub struct SandboxConfig {
 #[derive(Serialize, Deserialize, Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ContainerRuntimeName {
-    AppleContainer,
     #[default]
+    AppleContainer,
     Docker,
 }
 
@@ -533,7 +533,7 @@ impl Default for SandboxConfig {
             environment: default_sandbox_environment(),
             auto_cleanup: true,
             cpu_limit: None,
-            memory_limit: None,
+            memory_limit: Some("4G".to_string()),
             port_mappings: Vec::new(),
             default_terminal_mode: DefaultTerminalMode::default(),
             volume_ignores: Vec::new(),
@@ -544,8 +544,12 @@ impl Default for SandboxConfig {
     }
 }
 
+fn default_memory_limit() -> Option<String> {
+    Some("4G".to_string())
+}
+
 fn default_sandbox_image() -> String {
-    "ghcr.io/njbrake/aoe-sandbox:latest".to_string()
+    "ghcr.io/lgmars/agent-runner:latest".to_string()
 }
 
 fn default_sandbox_environment() -> Vec<String> {
