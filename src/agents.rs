@@ -340,6 +340,7 @@ pub const AGENTS: &[AgentDef] = &[
         instruction_flag: None,
         set_default_command: false,
         detect_status: status_detection::detect_settl_status,
+        detect_status_from_pane_title,
         container_env: &[],
         hook_config: None,
         resume_strategy: ResumeStrategy::Unsupported,
