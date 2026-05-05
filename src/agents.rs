@@ -360,6 +360,7 @@ pub const AGENTS: &[AgentDef] = &[
         // installed by hooks::install_hermes_hooks(); the stub here just
         // returns Idle as a fallback before the first hook fires.
         detect_status: status_detection::detect_hermes_status,
+        detect_status_from_pane_title,
         // HERMES_ACCEPT_HOOKS bypasses the first-use TTY consent prompt for
         // shell hooks. Hermes still gates each (event, command) on its
         // allowlist file, which AoE pre-populates in install_hermes_hooks.
