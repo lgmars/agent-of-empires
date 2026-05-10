@@ -239,26 +239,35 @@ pub(crate) fn collect_environment(
     sandbox_config: &SandboxConfig,
     sandbox_info: &SandboxInfo,
 ) -> Vec<EnvEntry> {
+    collect_environment_from_entries(sandbox_config, sandbox_info.extra_env.as_deref())
+}
+
+pub(crate) fn collect_environment_from_entries(
+    sandbox_config: &SandboxConfig,
+    extra_env: Option<&[String]>,
+) -> Vec<EnvEntry> {
+    let entries: &[String] = extra_env.unwrap_or(&sandbox_config.environment);
+    collect_env_entries(entries, true)
+}
+
+pub(crate) fn collect_host_environment(extra_env: &[String]) -> Vec<EnvEntry> {
+    collect_env_entries(extra_env, false)
+}
+
+fn collect_env_entries(entries: &[String], include_terminal_defaults: bool) -> Vec<EnvEntry> {
     let mut seen_keys = std::collections::HashSet::new();
     let mut result = Vec::new();
 
-    // When per-session extra_env is present, it is the authoritative env list
-    // (the TUI seeds it from config.sandbox.environment and the user may have
-    // added, edited, or removed entries). Fall back to config only when no
-    // per-session overrides exist.
-    let entries: &[String] = sandbox_info
-        .extra_env
-        .as_deref()
-        .unwrap_or(&sandbox_config.environment);
-
-    // Always ensure the terminal defaults are present (pass-through from host)
-    for &key in DEFAULT_TERMINAL_ENV_VARS {
-        if seen_keys.insert(key.to_string()) {
-            if let Ok(val) = std::env::var(key) {
-                result.push(EnvEntry::Inherit {
-                    key: key.to_string(),
-                    value: val,
-                });
+    // Docker exec needs terminal defaults explicitly passed through.
+    if include_terminal_defaults {
+        for &key in DEFAULT_TERMINAL_ENV_VARS {
+            if seen_keys.insert(key.to_string()) {
+                if let Ok(val) = std::env::var(key) {
+                    result.push(EnvEntry::Inherit {
+                        key: key.to_string(),
+                        value: val,
+                    });
+                }
             }
         }
     }
@@ -324,6 +333,14 @@ fn resolved_sandbox_config(
     super::repo_config::resolve_config_with_repo_or_warn(&resolved, project_path).sandbox
 }
 
+fn resolved_host_session_config(
+    profile: &str,
+    project_path: &std::path::Path,
+) -> super::config::HostSessionConfig {
+    let resolved = super::config::effective_profile(profile);
+    super::repo_config::resolve_config_with_repo_or_warn(&resolved, project_path).host_session
+}
+
 /// Result of building docker exec environment arguments.
 ///
 /// Separates secret (inherited from host) env vars from literal (non-secret) ones.
@@ -342,6 +359,10 @@ pub(crate) struct DockerExecEnv {
     pub exports: Vec<String>,
 }
 
+pub(crate) struct HostExecEnv {
+    pub exports: Vec<String>,
+}
+
 /// Build docker exec environment flags from config and optional per-session extra entries.
 /// Used for `docker exec` commands run inside tmux sessions.
 ///
@@ -356,16 +377,26 @@ pub(crate) fn build_docker_env_args(
     sandbox: &SandboxInfo,
     project_path: &std::path::Path,
 ) -> DockerExecEnv {
+    build_docker_env_args_with_extra(profile, sandbox, sandbox.extra_env.as_deref(), project_path)
+}
+
+pub(crate) fn build_docker_env_args_with_extra(
+    profile: &str,
+    sandbox: &SandboxInfo,
+    extra_env: Option<&[String]>,
+    project_path: &std::path::Path,
+) -> DockerExecEnv {
     let sandbox_config = resolved_sandbox_config(profile, project_path);
 
     tracing::debug!(
-        "build_docker_env_args: profile={:?}, config.sandbox.environment={:?}, extra_env={:?}",
+        "build_docker_env_args: profile={:?}, container={:?}, config.sandbox.environment={:?}, extra_env={:?}",
         profile,
+        sandbox.container_name,
         sandbox_config.environment,
-        sandbox.extra_env
+        extra_env
     );
 
-    let env_entries = collect_environment(&sandbox_config, sandbox);
+    let env_entries = collect_environment_from_entries(&sandbox_config, extra_env);
 
     tracing::debug!(
         "build_docker_env_args: resolved {} env entries",
@@ -396,6 +427,26 @@ pub(crate) fn build_docker_env_args(
         docker_args: docker_flag_parts.join(" "),
         exports,
     }
+}
+
+pub(crate) fn build_host_env_exports(
+    profile: &str,
+    extra_env: Option<&[String]>,
+    project_path: &std::path::Path,
+) -> HostExecEnv {
+    let host_session_config = resolved_host_session_config(profile, project_path);
+    let entries = extra_env.unwrap_or(&host_session_config.environment);
+    let env_entries = collect_host_environment(entries);
+    let exports = env_entries
+        .iter()
+        .map(|entry| match entry {
+            EnvEntry::Inherit { key, value } | EnvEntry::Literal { key, value } => {
+                format!("export {}={}", key, shell_escape(value))
+            }
+        })
+        .collect();
+
+    HostExecEnv { exports }
 }
 
 #[cfg(test)]
@@ -963,6 +1014,97 @@ environment = ["GH_TOKEN=write_token"]
         assert!(result.docker_args.contains("MY_LITERAL='public_val'"));
         assert!(!result.exports.iter().any(|e| e.contains("MY_LITERAL")));
         std::env::remove_var("AOE_TEST_SECRET");
+    }
+
+    #[test]
+    fn test_build_host_env_exports_uses_session_entries() {
+        std::env::set_var("AOE_TEST_HOST_EXTRA", "host_secret");
+        let entries = vec![
+            "AOE_TEST_HOST_EXTRA".to_string(),
+            "AOE_TEST_HOST_LITERAL=visible".to_string(),
+        ];
+        let result =
+            build_host_env_exports("", Some(&entries), std::path::Path::new("/nonexistent"));
+
+        assert!(
+            result
+                .exports
+                .iter()
+                .any(|e| e.contains("AOE_TEST_HOST_EXTRA") && e.contains("host_secret")),
+            "Expected inherited host env export: {:?}",
+            result.exports
+        );
+        assert!(
+            result
+                .exports
+                .iter()
+                .any(|e| e.contains("AOE_TEST_HOST_LITERAL") && e.contains("visible")),
+            "Expected literal host env export: {:?}",
+            result.exports
+        );
+        std::env::remove_var("AOE_TEST_HOST_EXTRA");
+    }
+
+    #[test]
+    fn test_build_host_env_exports_does_not_use_sandbox_defaults() {
+        let original = std::env::var("TERM").ok();
+        std::env::set_var("TERM", "xterm-256color");
+        let entries: Vec<String> = Vec::new();
+        let result =
+            build_host_env_exports("", Some(&entries), std::path::Path::new("/nonexistent"));
+        assert!(
+            result.exports.is_empty(),
+            "Host env should only use Instance.extra_env entries: {:?}",
+            result.exports
+        );
+        match original {
+            Some(v) => std::env::set_var("TERM", v),
+            None => std::env::remove_var("TERM"),
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn test_build_host_env_exports_uses_host_session_config_environment() {
+        let temp_home = tempfile::TempDir::new().unwrap();
+        std::env::set_var("HOME", temp_home.path());
+        #[cfg(target_os = "linux")]
+        std::env::set_var("XDG_CONFIG_HOME", temp_home.path().join(".config"));
+
+        #[cfg(target_os = "linux")]
+        let app_dir = temp_home.path().join(".config").join("agent-of-empires");
+        #[cfg(not(target_os = "linux"))]
+        let app_dir = temp_home.path().join(".agent-of-empires");
+        std::fs::create_dir_all(&app_dir).unwrap();
+        std::fs::write(
+            app_dir.join("config.toml"),
+            r#"
+[host_session]
+environment = ["AOE_HOST_FROM_CONFIG=config_value"]
+
+[sandbox]
+environment = ["AOE_SANDBOX_ONLY=not_for_host"]
+"#,
+        )
+        .unwrap();
+
+        let result = build_host_env_exports("", None, std::path::Path::new("/nonexistent"));
+        assert!(
+            result
+                .exports
+                .iter()
+                .any(|e| e.contains("AOE_HOST_FROM_CONFIG") && e.contains("config_value")),
+            "Expected host env from host-session config: {:?}",
+            result.exports
+        );
+        assert!(
+            !result
+                .exports
+                .iter()
+                .any(|e| e.contains("AOE_SANDBOX_ONLY")),
+            "Host env must not use sandbox environment: {:?}",
+            result.exports
+        );
     }
 
     #[test]

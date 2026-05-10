@@ -350,6 +350,9 @@ pub fn build_instance(
     instance.worktree_info = worktree_info;
     instance.workspace_info = workspace_info;
     instance.yolo_mode = params.yolo_mode;
+    if !params.sandbox {
+        instance.extra_env = params.extra_env.clone();
+    }
 
     // Apply command overrides and custom agent commands from resolved config.
     // Priority: per-session params > agent_command_override > custom_agents > AgentDef default.

@@ -67,6 +67,17 @@ agent_status_hooks = true
 | `custom_agents` | `{}` | User-defined agents: name to command mapping. Custom agent names appear in the TUI agent picker alongside built-in agents. |
 | `agent_detect_as` | `{}` | Status detection mapping: maps an agent name to a built-in agent whose status heuristics should be used. |
 
+## Host Sessions
+
+```toml
+[host_session]
+environment = ["ANTHROPIC_API_KEY", "GH_TOKEN=$AOE_GH_TOKEN"]
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `environment` | `[]` | Env vars for host sessions. Bare `KEY` passes the host value; `KEY=VALUE` sets explicitly; `KEY=$OTHER_KEY` reads another host variable. |
+
 ### Custom Agents
 
 You can register additional agents (SSH wrappers to remote machines, custom workflows, etc.) that appear in the TUI agent picker alongside built-in agents like `claude`, `opencode`, and `codex`.
@@ -233,6 +244,6 @@ Profile overrides go in `~/.agent-of-empires/profiles/<name>/config.toml` and us
 
 Per-repo settings go in `.agent-of-empires/config.toml` at your project root. Run `aoe init` to generate a template.
 
-Repo config supports: `[hooks]`, `[session]`, `[sandbox]`, and `[worktree]` sections. It does not support `[tmux]`, `[updates]`, `[claude]`, or `[diff]` -- those are personal settings.
+Repo config supports: `[hooks]`, `[session]`, `[host_session]`, `[sandbox]`, and `[worktree]` sections. It does not support `[tmux]`, `[updates]`, `[claude]`, or `[diff]` -- those are personal settings.
 
 See [Repo Config & Hooks](repo-config.md) for details.

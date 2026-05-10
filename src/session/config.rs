@@ -26,6 +26,9 @@ pub struct Config {
     pub worktree: WorktreeConfig,
 
     #[serde(default)]
+    pub host_session: HostSessionConfig,
+
+    #[serde(default)]
     pub sandbox: SandboxConfig,
 
     #[serde(default)]
@@ -144,6 +147,19 @@ pub struct AppStateConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_by: Option<GroupByMode>,
+}
+
+/// Host-session runtime configuration.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct HostSessionConfig {
+    /// Environment entries for host sessions.
+    /// `KEY` = pass through from host, `KEY=VALUE` = set explicitly.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "super::serde_helpers::string_or_vec"
+    )]
+    pub environment: Vec<String>,
 }
 
 /// Session-related configuration defaults

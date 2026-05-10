@@ -142,6 +142,10 @@ pub struct Instance {
     pub detect_as: String,
     #[serde(default)]
     pub yolo_mode: bool,
+    /// Additional environment entries for this session.
+    /// `KEY` = pass through from host, `KEY=VALUE` = set explicitly.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extra_env: Vec<String>,
     #[serde(default)]
     pub status: Status,
     pub created_at: DateTime<Utc>,
@@ -372,6 +376,7 @@ impl Instance {
             tool: "claude".to_string(),
             detect_as: String::new(),
             yolo_mode: false,
+            extra_env: Vec::new(),
             status: Status::Idle,
             created_at: Utc::now(),
             last_accessed_at: None,
@@ -961,8 +966,18 @@ impl Instance {
 
         // Prepend AOE_INSTANCE_ID env var if this agent supports hooks.
         let env_prefix = status_hook_env_prefix(&self.id, &self.tool, agent);
+        let host_extra_env = if self.extra_env.is_empty() {
+            None
+        } else {
+            Some(self.extra_env.as_slice())
+        };
+        let host_env = super::environment::build_host_env_exports(
+            &self.source_profile,
+            host_extra_env,
+            Path::new(&self.project_path),
+        );
 
-        if self.command.is_empty() {
+        let wrapped = if self.command.is_empty() {
             crate::agents::get_agent(&self.tool).map(|a| {
                 let mut cmd = a.binary.to_string();
                 if !self.extra_args.is_empty() {
@@ -991,7 +1006,8 @@ impl Instance {
                 "{}{}",
                 env_prefix, cmd
             )))
-        }
+        };
+        wrapped.map(|cmd| prepend_exports(&host_env.exports, cmd))
     }
 
     /// Post-launch setup: persist state, start pollers, and apply tmux options.
@@ -2557,6 +2573,27 @@ mod tests {
         let cmd_str = cmd.unwrap();
         assert!(cmd_str.contains("ses_abc123def456"));
         assert!(cmd_str.contains("--session-id") || cmd_str.contains("--resume"));
+    }
+
+    #[test]
+    fn test_build_host_command_with_extra_env() {
+        std::env::set_var("AOE_TEST_HOST_CMD_ENV", "secret_value");
+        let mut inst = Instance::new("test", "/tmp/test");
+        inst.tool = "codex".to_string();
+        inst.extra_env = vec![
+            "AOE_TEST_HOST_CMD_ENV".to_string(),
+            "AOE_TEST_HOST_LITERAL=literal_value".to_string(),
+        ];
+
+        let cmd = inst.build_host_command(crate::agents::get_agent("codex"), &None);
+        let cmd_str = cmd.unwrap();
+
+        assert!(cmd_str.contains("export AOE_TEST_HOST_CMD_ENV="));
+        assert!(cmd_str.contains("secret_value"));
+        assert!(cmd_str.contains("export AOE_TEST_HOST_LITERAL="));
+        assert!(cmd_str.contains("literal_value"));
+        assert!(cmd_str.contains("codex"));
+        std::env::remove_var("AOE_TEST_HOST_CMD_ENV");
     }
 
     #[test]
